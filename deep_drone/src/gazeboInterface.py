@@ -19,15 +19,15 @@ class GazeboInterface():
         self.reset = rospy.ServiceProxy('gazebo/reset_world', Empty)
         
     def resetSim(self):
-        resetSimulation = False
+        #resetSimulation = False
         rospy.wait_for_service('/gazebo/reset_world')
         try:
             self.reset()
-            resetSimulation = True 
+            #resetSimulation = True 
         except rospy.ServiceException as e:
             print("/gazebo/reset_simulation service failed")
         
-        return resetSimulation
+        #return resetSimulation
     
     def pauseSim(self):
         rospy.wait_for_service('/gazebo/pause_physics')
