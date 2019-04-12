@@ -3,15 +3,17 @@
   <!-- root link, on the ground just below the model origin -->
   <link name="base_footprint">
    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
+   <collision>
+      <origin xyz="0.0 0.0 0.0" rpy="0 0 0" />
       <geometry>
         <box size="0.001 0.001 0.001" />
       </geometry>
+    </collision>
     </visual>
   </link>
 
   <joint name="base_link_joint" type="fixed">
-    <origin xyz="0.0 0 1.25" rpy="0 0 0" />
+    <origin xyz="2.0 3.0 0.3" rpy="0 0 0" />
     <parent link="base_footprint"/>
     <child link="base_link" />
   </joint>
@@ -19,15 +21,17 @@
   <!-- the model -->
   <link name="base_link">
     <inertial>
+    
       <mass value="50" />
-      <origin xyz="0 0 -1.25" />
-      <inertia ixx="50.0" ixy="0.0" ixz="0.0"
-        iyy="50.0" iyz="0.0"
-        izz="50.0" />
+      <origin xyz="0.0 0 0.0" />
+      <inertia ixx="17.034" ixy="0.0" ixz="0.0"
+        iyy="17.034" iyz="0.0"
+        izz="33.33" />
+    
     </inertial>
     <visual>
       <geometry>
-        <box size="1.0 1.0 0.3" /> <!-- does not need to match collision -->
+        <box size="2.0 2.0 0.3" /> <!-- does not need to match collision -->
       </geometry>
     </visual>
     <collision>
@@ -48,3 +52,4 @@
     </plugin>
 </gazebo>
 </robot>
+
