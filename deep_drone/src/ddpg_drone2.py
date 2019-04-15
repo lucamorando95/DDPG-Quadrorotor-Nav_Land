@@ -14,6 +14,7 @@ import keras.backend as K
 from keras import backend as K
 import tensorflow as tf
 import random
+import math
 import os
 import matplotlib.pyplot as plt #for plotting graophs
 
@@ -31,7 +32,7 @@ from ReplayBuffer import ReplayBuffer
 
 COMMAND_PERIOD = 1000
 def start_training():
-    debug = False
+    debug = True
     env = Environment(debug)  #Put here all teh function needed for the interaction with the env
     
     observ_dim = env.num_states
@@ -49,7 +50,7 @@ def start_training():
     #training parameters
     
     explore = 10000
-    max_episode = 3000
+    max_episode = 5000
     max_steps_in_ep = 10000
     reward = 0
    
@@ -65,8 +66,11 @@ def start_training():
     episode = []
     distance = []
     
+    #Define goal pos only for print purpose 
+    distance_error = []
+    goal_position = [2.0, 3.0]
     episode_check = 0
-    desired_checking_episode = 5
+    desired_checking_episode = 10
     #If running on RDS uncomment this part
     #Tensorflow GPU optimization
 #    config = tf.ConfigProto()
@@ -124,13 +128,13 @@ def start_training():
        step = 0 #number of iteration inside eac episode 
        episode_check  = episode_check +1
        while(done == False):
-            if step > 10:#200:
+            if step > 200:#200:
                 break # exit from the main loop
            
             step = step + 1
             
-            if debug:
-                print('###############################')
+#            if debug:
+#                print('###############################')
                 #print('step: {}'.format(step)) 
             print('############################################################')
             loss = 0
@@ -154,7 +158,7 @@ def start_training():
             action_t[0][1] = action_t_initial[0][1] + noise_t[0][1]
             
             #Step, Apply action in the environment and reach a new state 
-            state_t1, reward_t, terminal, distance_error = env._step(action_t[0],step) 
+            state_t1, reward_t, terminal = env._step(action_t[0],step) 
             #print('state_t1 : {}'.format(state_t1))
        
             state_t1 = np.asarray(state_t1) #create array of the new state
@@ -217,17 +221,27 @@ def start_training():
             actor.target_net_train()
             critic.target_net_train()
             
+            #Evaluate distance error fro print purpose 
+            error_x = (goal_position[0] - state_t[0])
+            error_y = (goal_position[1] - state_t[1])
+            distance_error = math.sqrt(error_x*error_x + error_y*error_y)
+            
             #Update Total Reward 
             #print('reward_t', reward_t)
+           
+            if not reward_t[0] :
+                reward_t[0] = -100*distance_error
+                
             total_reward[0] =  total_reward[0] + reward_t[0]
            
             #The new state becomes the actual state
             state_t = state_t1
             
+            
             #Save Model and Weights every 50 episodes as a checkpoint 
             print('episode: {}, steps: {}, tot_rewards: {}, terminal: {}'.format(ep, step, total_reward, terminal))
             
-            print('distance_err: {}, pos_x: {}, pos_y: {}'.format(distance_error, state_t[0], state_t[1]))
+            print('distance_error:{}, pos_x: {}, pos_y: {}'.format(distance_error, state_t[0], state_t[1]))
             
             #if ((step+1)%10 == 0):
        if (episode_check == desired_checking_episode):
@@ -270,7 +284,7 @@ def start_training():
                    distance_mat = np.asarray(distance)
                    
                    episode_mat = np.resize(episode_mat,[ep,1])
-                   print('episode_mat',episode_mat)
+                  
                    episode_name = 'Statistics/%d_episode.csv' %(ep)
                    episode_reward_name = 'Statistics/%d_reward.csv' %(ep)
                    distance_name = 'Statistics/%d_distance.csv' %(ep)

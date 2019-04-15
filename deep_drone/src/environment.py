@@ -48,16 +48,16 @@ class Environment():
         self.num_actions = 2
         
         #Define max tollerance for position in order to end episode 
-        self.max_x = 7
-        self.min_x = -7
+        self.max_x = 6
+        self.min_x = -6
         
-        self.max_y = 7
-        self.min_y = -7
+        self.max_y = 6
+        self.min_y = -6
         self.max_incl = np.pi/3
         #take into account previous state and previous reward 
         self.prev_state = []
         self.prev_reward = []
-        
+       
         self.step_running = 0.05 #required for rod param conversion
         
         self.debug = debug
@@ -117,7 +117,7 @@ class Environment():
         self.gazebo.pauseSim()
         
         #Do the processing of the data and the state reached in oreder to obtain a reward  and define if it is the terminal state or not
-        reward, isTerminal, distance_error = self.processingData(poseData, imuData, velData, step)
+        reward, isTerminal = self.processingData(poseData, imuData, velData, step)
         nextState = [poseData.pose.pose.position.x, poseData.pose.pose.position.y]
         self.prev_state = nextState
         self.plotState = np.vstack((self.plotState, np.asarray(nextState))) #cretate a vertical array of two array concatenated 
@@ -125,7 +125,8 @@ class Environment():
         if isTerminal[0] == True:
             self.goal_reached = self.goal_reached + 1
             print('State terminal reached number :', self.goal_reached)
-        return nextState, reward, isTerminal, distance_error
+           
+        return nextState, reward, isTerminal
     
     def takeEnvObservations(self): #Function which takes information from the environment in gazebo 
         
@@ -188,8 +189,8 @@ class Environment():
             
             
             Terminal = [True]
-            reward = self.reward_crash - self.prev_reward
-            
+            reward = self.reward_crash + self.prev_reward
+            reward = [reward]
         
         elif (pitch > self.max_incl) or (pitch < -self.max_incl):
             if self.debug:
@@ -199,7 +200,8 @@ class Environment():
                  self.prev_reward = 0
              
             Terminal = [True]
-            reward = self.reward_crash - self.prev_reward
+            reward = self.reward_crash + self.prev_reward
+            reward = [reward]
             
         elif poseData.pose.pose.position.x > self.max_x or poseData.pose.pose.position.x < -self.max_x:
             if self.debug:
@@ -207,10 +209,11 @@ class Environment():
              
             if self.prev_reward is Empty:
                  self.prev_reward = 0
-             
+              
             Terminal = [True]
-            reward = self.reward_crash - self.prev_reward
-        
+            reward = self.reward_crash + self.prev_reward
+            reward = [reward]
+            
         elif poseData.pose.pose.position.y > self.max_y or poseData.pose.pose.position.y < -self.max_y:
             if self.debug:
                 rospy.loginfo("Terminating Episode: Y position value out of limits, unstable quad ----> "+str(poseData.pose.pose.position.y))
@@ -219,19 +222,20 @@ class Environment():
                  self.prev_reward = 0
              
             Terminal = [True]
-            reward = self.reward_crash - self.prev_reward
-        
+            reward = self.reward_crash + self.prev_reward
+            reward = [reward]
+             
         else:
-            reward, goal_reached, distance_error = self.getting_reward(poseData, imuData, velData,step) #To be designed the reward function
+            reward, goal_reached = self.getting_reward(poseData, imuData, velData,step) #To be designed the reward function
             if goal_reached:
                 print('Goal Reached!')
                 Terminal = [True]
         
         #Anyway it goed the reward is printed 
-        if self.debug:
-            print('Reward: {}'.format(reward))
-            print('Terminal',Terminal)
-        return reward, Terminal, distance_error 
+#        if self.debug:
+#            print('Reward: {}'.format(reward))
+#            print('Terminal',Terminal)
+        return reward, Terminal
     
     
              
@@ -241,10 +245,10 @@ class Environment():
         if step == 1:
             self.prev_reward = 0
             reward = 0
-        
+            reward = [reward]
         
         goal = False
-        
+        distance_error = 0
         #Evaluate distance error between the drone position on x,y and the goal position on x,y 
         x_drone = poseData.pose.pose.position.x
         y_drone = poseData.pose.pose.position.y
@@ -257,11 +261,13 @@ class Environment():
         error_y = (y_goal - y_drone)
         distance_error = math.sqrt(error_x*error_x + error_y*error_y)
         
-        if self.debug:
-            print('Distance Error: {}'.format(distance_error))
+#        if self.debug:
+#            print('Distance Error: {}'.format(distance_error))
         
         if distance_error < self.goal_threshold:
-            reward = reward + self.goal_reward
+            reward = self.goal_reward -self.prev_reward 
+            reward = [reward]
+            reward_t = reward
             goal = True
        
         else: #evaluate reward with the desired function
@@ -273,7 +279,7 @@ class Environment():
         
             
         self.prev_reward = reward_t
-        return reward, goal, distance_error
+        return reward, goal
         
         
         
