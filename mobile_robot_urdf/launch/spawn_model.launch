@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+    <param name="robot_description" command="cat '$(find mobile_robot_urdf)/urdf/Box.urdf'" />
+    
+    <node name="mybot_spawn" pkg="gazebo_ros" type="spawn_model" output="screen"
+          args="-urdf -param robot_description -model Box" />
+         
+    <!--node pkg="mobile_robot_urdf" type="odom" name="odom"/--> 
+    <!--node pkg="mobile_robot_urdf" type="pos_control_mobile" name="pos_control_mobile"/-->
+</launch>
