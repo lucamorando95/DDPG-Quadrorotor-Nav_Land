@@ -48,6 +48,7 @@ class CriticNetwork(object):
            hidden_1 = Dense(hidden_layers_dimension, activation = 'linear')(input_layer) #Identity activation function --> maintains inaltereted the weights values
         
            #INPUT 2 ---> Actions 
+         
            action_input =  Input(shape = [self.actions_dim], name = 'action_in')
            action_layer = Dense(hidden_layers_dimension,activation = 'linear')(action_input)
         
@@ -55,7 +56,8 @@ class CriticNetwork(object):
            hidden_2 = merge([hidden_1,action_layer], mode = 'sum')
            hidden_3 = Dense(hidden_layers_dimension,activation = 'relu')(hidden_2)
            out_layer = Dense(1,activation = 'relu')(hidden_3)
-        
+           
+         
            model = Model(input = [state_input,action_input], output = [out_layer])
            adam_opt = Adam(self.learning_rate)
            model.compile(loss = 'mse', optimizer = adam_opt)
@@ -66,7 +68,7 @@ class CriticNetwork(object):
         
         
         #create network model 
-        self.model,  self.state, self.action= initialize_critic_net(self.hidden_layers_dim)
+        self.model, self.state, self.action = initialize_critic_net(self.hidden_layers_dim)
         self.model_target, self.target_action, self.target_state = initialize_critic_net(self.hidden_layers_dim)
         self.gradient_action = tf.gradients(self.model.output, self.action) #The oputput is a tensor or a lists of tensor  of the same len(self.model.output) where each element is the derivative of the weights respect to the output
         self.sess.run(tf.initialize_all_variables())
@@ -74,6 +76,7 @@ class CriticNetwork(object):
    
         
     def gradients(self, states, actions):
+       
         return self.sess.run(self.gradient_action, feed_dict = {self.state:states, self.action:actions})[0]  #Da verificare 
     
     

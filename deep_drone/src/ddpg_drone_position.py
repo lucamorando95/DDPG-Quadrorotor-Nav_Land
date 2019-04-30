@@ -1,5 +1,5 @@
 #!/usr/bin/env python 
-
+# coding=utf-8
 #import library ros 
 import rospy 
 import time
@@ -32,7 +32,7 @@ from ReplayBuffer import ReplayBuffer
 
 COMMAND_PERIOD = 1000
 
-def start_training(goal_position):
+def start_training(goal_position, test_flag):
     debug = True
     env = Environment(debug, goal_position)  #Put here all teh function needed for the interaction with the env
     
@@ -128,7 +128,7 @@ def start_training(goal_position):
    #Principal Training LOOP
     for ep in range(500,max_episode):
        #receive initial observation state
-       state_t = env._reset() #reset environment ---> waiting for take off -> give also the state information relative to the actual drone position ecc 
+       state_t = env._reset(test_flag) #reset environment ---> waiting for take off -> give also the state information relative to the actual drone position ecc 
        state_t = np.asarray(state_t) #create an array that is the state at time t : errorX,errorY, Terminal
        total_reward = [0] #initialize reward 
        terminal = [False] #flag relative to the training phase
@@ -165,7 +165,7 @@ def start_training(goal_position):
             action_t[0][1] = action_t_initial[0][1] + noise_t[0][1]
             
             #Step, Apply action in the environment and reach a new state 
-            state_t1, reward_t, terminal = env._step(action_t[0],step) 
+            state_t1, reward_t, terminal, _ = env._step(action_t[0],step, test_flag) 
             #print('state_t1 : {}'.format(state_t1))
        
             state_t1 = np.asarray(state_t1) #create array of the new state
@@ -352,7 +352,7 @@ def OUhlenbeck_noise(epsilon, action):
     dx = max(epsilon,0) *(theta * (mu - action) + sigma*np.random.randn(1))
     return dx 
 
-def start_test(goal_position):
+def start_test(goal_position, test_flag):
     
     """
     During the test phase the agents use only the action that are predicted from the actor network, well trained.
@@ -418,7 +418,8 @@ def start_test(goal_position):
         
         actor = ActorNetwork(env,sess)
         #critic = CriticNetwork(env,sess)
-        actor_model = '/home/parallels/catkin_ws/src/deep_drone/src/Data_Saved/Actor_weights/%d_actor_model.h5' %(i)
+        #actor_model = '/home/parallels/catkin_ws/src/deep_drone/src/Data_Saved/Actor_weights/%d_actor_model.h5' %(i) QUESTO È QUELLO ORIGINALE 
+        actor_model = '/home/parallels/catkin_ws/src/deep_drone/src/Data_Saved/Actor_weights/499_actor_model.h5'
        # critic_model = '/home/parallels/catkin_ws/src/deep_drone/src/Data_Saved/Critic_weights/%d_critic_model.h5' %(i)
         try:
              actor.model.load_weights(actor_model)
@@ -440,7 +441,7 @@ def start_test(goal_position):
         for ep in range(max_episode):
             
             #Take initial observation as in training phase 
-            state_t = env._reset() #reset environment ---> waiting for take off -> give also the state information relative to the actual drone position ecc 
+            state_t = env._reset(test_flag) #reset environment ---> waiting for take off -> give also the state information relative to the actual drone position ecc 
             state_t = np.asarray(state_t) #create an array that is the state at time t : errorX,errorY, Terminal
             total_reward = [0] #initialize reward 
             terminal = [False] #flag relative to the training phase
@@ -461,7 +462,7 @@ def start_test(goal_position):
                 action_t[0][1] = action_t_initial[0][1]
                 
                 #Step, Apply action in the environment and reach a new state 
-                state_t1, reward_t, terminal = env._step(action_t[0],step) 
+                state_t1, reward_t, terminal, altitude = env._step(action_t[0],step, test_flag) 
                 state_t1 = np.asarray(state_t1)
                 
                 total_reward[0] =  total_reward[0] + reward_t[0]
@@ -471,6 +472,19 @@ def start_test(goal_position):
                 error_x = (goal_position[0] - state_t[0])
                 error_y = (goal_position[1] - state_t[1])
                 distance_error = math.sqrt(error_x*error_x + error_y*error_y)
+                if terminal == [True] and distance_error < 1.5:#0.7
+                    uav = AutonomousFlight()
+                    print("waiting For Landing")
+                    landing = False 
+                    
+                    while not rospy.is_shutdown():
+                        if landing == False:
+                            poseData, _, _, altitudeVelDrone = env.takeEnvObservations(test_flag)
+                            landing = uav.SendLand(uav,poseData,altitudeVelDrone)
+                        else:
+                            break
+                        rospy.sleep(0.5)
+                    
                 print('episode: {}, step: {},distance_error: {}, total_reward :{}'.format(ep, step,distance_error, total_reward[0]))
             episode_reward.append(total_reward)
             print('episode: {}, total_ep_reward :{}'.format(ep, np.mean(episode_reward)))
@@ -511,14 +525,14 @@ if __name__ == '__main__':
     
     poseData = None 
     TakeOff = False
-    test_flag = False
+    test_flag = True
     goal_position = [2.0, 3.0]
     try:    
         if test_flag:
-              start_test(goal_position)
+              start_test(goal_position,test_flag )
     #Start Training 
         else:
-              start_training(goal_position)
+              start_training(goal_position, test_flag)
    
     except rospy.ROSInterruptException:
         pass

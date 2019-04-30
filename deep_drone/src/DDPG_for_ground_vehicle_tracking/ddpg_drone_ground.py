@@ -32,9 +32,9 @@ from ReplayBuffer import ReplayBuffer
 
 COMMAND_PERIOD = 1000
 
-def start_training(goal_position):
+def start_training():
     debug = True
-    env = Environment(debug, goal_position)  #Put here all teh function needed for the interaction with the env
+    env = Environment(debug)  #Put here all teh function needed for the interaction with the env
     
     observ_dim = env.num_states
     actions_dim = env.num_actions
@@ -55,7 +55,7 @@ def start_training(goal_position):
     max_steps_in_ep = 10000
     reward = 0
    
-   
+    stat_step = True
     done = False 
     epsilon = 0.9 #exploration exploitation value 
     indicator = 0
@@ -72,9 +72,10 @@ def start_training(goal_position):
     
     #Define goal pos only for print purpose 
     distance_error = []
-    goal_position = [2.0, 3.0]
+    
     episode_check = 0
     desired_checking_episode = 10
+   
     #If running on RDS uncomment this part
     #Tensorflow GPU optimization
 #    config = tf.ConfigProto()
@@ -93,40 +94,28 @@ def start_training(goal_position):
     actor = ActorNetwork(env,sess)
     critic = CriticNetwork(env,sess)
     replay_buffer = ReplayBuffer()    
-    saved_path = '/home/parallels/catkin_ws/src/deep_drone/src/Data_Saved' #/Model_Weights_saved'
+    saved_path = '/home/parallels/catkin_ws/src/deep_drone/src/DDPG_for_ground_vehicle_tracking/Data_Saved' #/Model_Weights_saved'
     save_directory = os.path.join(os.getcwd(), saved_path)
     
-    try:
-        actor.model.load_weights("/home/parallels/catkin_ws/src/deep_drone/src/Data_Saved/Actor_weights/499_actor_weights.h5")
-        actor.model_target.load_weights("/home/parallels/catkin_ws/src/deep_drone/src/Data_Saved/Actor_weights/499_actor_weights.h5")
-        critic.model.load_weights('/home/parallels/catkin_ws/src/deep_drone/src/Data_Saved/Critic_weights/499_critic_model.h5')
-        critic.model_target.load_weights("/home/parallels/catkin_ws/src/deep_drone/src/Data_Saved/Critic_weights/499_critic_model.h5")
-        
-        #critic.model_target.load_weights("/home/parallels/catkin_ws/src/deep_drone/src/Data_Saved/Actor_weights/219_critic_weights.h5")
-        print("WEIGHTS LOAD CORRECTLY")
-    except:
-        print("ERR: WEIGHTS LOAD UNCORRECTLY")
+#    try:
+#        actor.model.load_weights("/home/parallels/catkin_ws/src/deep_drone/src/Data_Saved/Actor_weights/499_actor_weights.h5")
+#        actor.model_target.load_weights("/home/parallels/catkin_ws/src/deep_drone/src/Data_Saved/Actor_weights/499_actor_weights.h5")
+#        critic.model.load_weights('/home/parallels/catkin_ws/src/deep_drone/src/Data_Saved/Critic_weights/499_critic_model.h5')
+#        critic.model_target.load_weights("/home/parallels/catkin_ws/src/deep_drone/src/Data_Saved/Critic_weights/499_critic_model.h5")
+#        
+#        #critic.model_target.load_weights("/home/parallels/catkin_ws/src/deep_drone/src/Data_Saved/Actor_weights/219_critic_weights.h5")
+#        print("WEIGHTS LOAD CORRECTLY")
+#    except:
+#        print("ERR: WEIGHTS LOAD UNCORRECTLY")
         
     
     if not os.path.isdir(save_directory): #return true if path is in an existing directory
         os.makedirs(save_directory)
     os.chdir(save_directory)
     
-    #plot graphs settings
-    if (plot_reward):
-        plt.ion() #turn the interactive mode on
-        plt.title('Training Curve')
-        plt.xlabel('Episodes')
-        plt.ylabel('Total Reward')
-        plt.grid()
-    
-        plt.ion()
-        plt.title('Distance Error')
-        plt.xlabel('Episodes')
-        plt.ylabel('Cartesian Error')
-        plt.grid()
+   
    #Principal Training LOOP
-    for ep in range(500,max_episode):
+    for ep in range(max_episode):
        #receive initial observation state
        state_t = env._reset() #reset environment ---> waiting for take off -> give also the state information relative to the actual drone position ecc 
        state_t = np.asarray(state_t) #create an array that is the state at time t : errorX,errorY, Terminal
@@ -152,7 +141,7 @@ def start_training(goal_position):
             
             #the current action is selected according to current policy and exploration noise 
             #The action is predicted from the actor network without noise 
-            
+           
             action_t_initial = actor.model.predict(state_t.reshape(1, state_t.shape[0]))#state_t.reshape(1, state_t.shape[0])) #make prediction given the state input,shape gives the dimension of the vector.
             #print('action_t_initial', action_t_initial)                                                             
             
@@ -169,6 +158,7 @@ def start_training(goal_position):
             #print('state_t1 : {}'.format(state_t1))
        
             state_t1 = np.asarray(state_t1) #create array of the new state
+           
             #Now the sequence state_t, actions, reward, state_t1 must be add to the replay buffer experience 
             replay_buffer.add_experience(state_t, action_t[0], reward_t, state_t1, terminal)
             
@@ -183,6 +173,7 @@ def start_training(goal_position):
             reward_buff = np.asarray([i[2] for i in mini_batch])
             state_new_buff = np.asarray([i[3] for i in mini_batch])
             terminal_buff = np.asarray([i[4] for i in mini_batch])
+            
                 #istantiate a y_target vector which must be of the same dimesion of the length of the mini batch
             #y_target = np.asarray([i[1] for i in mini_batch]) #it is only to have the array of the desired dimension
            
@@ -219,6 +210,7 @@ def start_training(goal_position):
             #This because the actor network must be trained to follow the maximum gradient increasing direction of the critic network that represent in fact the q network.
             #Like in Q learning, in the Q table, you follow tha action that increase the Q value. Sa me choose here, only different is that instead of having a value 
             #to follow we have the gradient of the Critic NEtwork
+           
             critic_gradient = critic.gradients(states_buff,action_for_grad)
             #The actor network is trained having as input the states from which the critic gradient is computed and as target the critic_gradient itself. 
             #The goal of the actor networ is to output actions that goes in the direction of the gradient and every time maximize it
@@ -229,41 +221,40 @@ def start_training(goal_position):
             critic.target_net_train()
             
             #Evaluate distance error fro print purpose 
-            error_x = (goal_position[0] - state_t[0])
-            error_y = (goal_position[1] - state_t[1])
-            distance_error = math.sqrt(error_x*error_x + error_y*error_y)
+           
+            distance_error = math.sqrt(state_t[0]*state_t[0]+ state_t[1]*state_t[1])
             
             #Update Total Reward 
             #print('reward_t', reward_t)
            
-            if not reward_t[0] :
-                reward_t[0] = -100*distance_error
+#            if not reward_t[0] :
+#                reward_t[0] = -100*distance_error
                 
             total_reward[0] =  total_reward[0] + reward_t[0]
-           
+            
             #The new state becomes the actual state
             state_t = state_t1
             
             #### Save distance and reward for each step only for pllotting purpose
             distance_step.append(distance_error)
             step_reward.append(reward_t[0])
-            if (terminal[0] == True or step == 200):
-                   distance_step_mat = np.asarray(distance_step)
-                  
-                   step_reward_mat = np.asarray(step_reward)
-                   
-                   
-                  
-                   distance_step_name = 'Statistics/Step_Statistics/%d_distance_step.csv' %(ep)
-                   step_reward_name = 'Statistics/Step_Statistics/%d_step_reward.csv' %(ep)
-                   
-                   np.savetxt(distance_step_name,distance_step_mat, delimiter = ",") #Nel post processing in matlab importare il vettore episode su asse x e fare plot con reward e distance su asse y
-                   np.savetxt(step_reward_name,step_reward_mat, delimiter = ",")
-                   distance_step_mat = []
-                   step_reward_mat = []
-                   distance_step = []
-                   step_reward = []
-            
+#            if ((terminal[0] == True or step == 200) and stat_step == True):
+#                   distance_step_mat = np.asarray(distance_step)
+#                  
+#                   step_reward_mat = np.asarray(step_reward)
+#                   
+#                   
+#                  
+#                   distance_step_name = 'Statistics/Step_Statistics/%d_distance_step.csv' %(ep)
+#                   step_reward_name = 'Statistics/Step_Statistics/%d_step_reward.csv' %(ep)
+#                   
+#                   np.savetxt(distance_step_name,distance_step_mat, delimiter = ",") #Nel post processing in matlab importare il vettore episode su asse x e fare plot con reward e distance su asse y
+#                   np.savetxt(step_reward_name,step_reward_mat, delimiter = ",")
+#                   distance_step_mat = []
+#                   step_reward_mat = []
+#                   distance_step = []
+#                   step_reward = []
+#            
             #Save Model and Weights every 50 episodes as a checkpoint 
             print('episode: {}, steps: {}, tot_rewards: {}, terminal: {}'.format(ep, step, total_reward, terminal))
             
@@ -288,7 +279,7 @@ def start_training(goal_position):
                   json.dump(actor.model.to_json(), outfile) #save Model Archutecture, not weights
                 
                 
-              critic_save_weights_name = 'critic_weights/ %d_critic_weights' %(ep)
+              critic_save_weights_name = 'Critic_weights/ %d_critic_weights' %(ep)
               critic.model.save_weights(critic_save_weights_name+model_ext,overwrite = True)
               with open(critic_save_weights_name+model_ext2, "w") as outfile:
                   json.dump(critic.model.to_json(), outfile)
@@ -318,7 +309,27 @@ def start_training(goal_position):
                    np.savetxt(episode_reward_name,ep_reward_mat, delimiter = ",")
                    np.savetxt(distance_name,distance_mat, delimiter = ",")
                    episode_check = 0
-         
+                   
+                   #if ((terminal[0] == True or step == 200) and stat_step == True):
+                   if (stat_step == True):
+                      distance_step_mat = np.asarray(distance_step)
+                  
+                      step_reward_mat = np.asarray(step_reward)
+                      distance_step_name = 'Statistics/Step_Statistics/%d_distance_step.csv' %(ep)
+                      step_reward_name = 'Statistics/Step_Statistics/%d_step_reward.csv' %(ep)
+                   
+                      np.savetxt(distance_step_name,distance_step_mat, delimiter = ",") #Nel post processing in matlab importare il vettore episode su asse x e fare plot con reward e distance su asse y
+                      np.savetxt(step_reward_name,step_reward_mat, delimiter = ",")
+                      distance_step_mat = []
+                      step_reward_mat = []
+                      distance_step = []
+                      step_reward = []
+               else:
+                      distance_step_mat = []
+                      step_reward_mat = []
+                      distance_step = []
+                      step_reward = []
+                    
             ##################################
             #Plot State every tot episode 
             
@@ -352,7 +363,7 @@ def OUhlenbeck_noise(epsilon, action):
     dx = max(epsilon,0) *(theta * (mu - action) + sigma*np.random.randn(1))
     return dx 
 
-def start_test(goal_position):
+def start_test():
     
     """
     During the test phase the agents use only the action that are predicted from the actor network, well trained.
@@ -363,7 +374,7 @@ def start_test(goal_position):
     
     
     debug = True
-    env = Environment(debug, goal_position)  #Put here all teh function needed for the interaction with the env
+    env = Environment(debug)  #Put here all teh function needed for the interaction with the env
     
     observ_dim = env.num_states
     actions_dim = env.num_actions
@@ -512,13 +523,13 @@ if __name__ == '__main__':
     poseData = None 
     TakeOff = False
     test_flag = False
-    goal_position = [2.0, 3.0]
+   
     try:    
         if test_flag:
-              start_test(goal_position)
+              start_test()
     #Start Training 
         else:
-              start_training(goal_position)
+              start_training()
    
     except rospy.ROSInterruptException:
         pass

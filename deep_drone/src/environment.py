@@ -27,7 +27,7 @@ import pdb
 
 #  write here all the parameters
 class Environment():
-    def __init__(self, debug):
+    def __init__(self, debug, goalPosition):
         
         self.gazebo = gazebo.GazeboInterface()
 #      connction to  velocity topic
@@ -37,33 +37,36 @@ class Environment():
         self.min_vel = -1.5
 
 #      Define Goal Position in world frame 
-        self.goalPosition = [2.0, 3.0] #the position is defined only on x,y coordinates 
+        self.goalPosition = goalPosition#[2.0, 3.0] #the position is defined only on x,y coordinates 
         
-        self.goal_threshold = 1
+        self.goal_threshold = 0.7 #0.9
         self.reward_crash = -5
         self.goal_reward = 50
-        self.goal_reached = 0;
+        self.goal_reached = 0
         
         self.num_states = 2 #(x_des - x) and (y_des - y)
         self.num_actions = 2
         
         #Define max tollerance for position in order to end episode 
-        self.max_x = 6
-        self.min_x = -6
+        self.max_x = 10
+        self.min_x = -10
         
-        self.max_y = 6
-        self.min_y = -6
+        self.max_y = 10
+        self.min_y = -10
         self.max_incl = np.pi/3
         #take into account previous state and previous reward 
         self.prev_state = []
         self.prev_reward = []
+        
+        self.linear_vel_z = 0.0
+        self.angular_vel_z  = 0.0
        
         self.step_running = 0.05 #required for rod param conversion
         
         self.debug = debug
         
         
-    def _reset(self):
+    def _reset(self, test_flag):
         #reset Simulation to Initial Value
          #resetSim = False
          TakeOff = False
@@ -78,14 +81,14 @@ class Environment():
          uav = AutonomousFlight()
          while not rospy.is_shutdown():
             if TakeOff == False:
-               takeOff = uav.SendTakeOff(TakeOff, uav)
+               takeOff = uav.SendTakeOff(TakeOff, uav, test_flag)
                TakeOff = takeOff
               
             else:
                break
          
         #Get Initial states 
-         initPoseData, imuData, velData = self.takeEnvObservations()
+         initPoseData, imuData, velData,_ = self.takeEnvObservations(test_flag)
         
          initPoseStateData = [initPoseData.pose.pose.position.x, initPoseData.pose.pose.position.y] #take the position of the drone respect ground
          self.plotState = np.asarray(initPoseStateData)
@@ -96,7 +99,7 @@ class Environment():
             
          return initPoseStateData
         
-    def _step(self, action,step): #NB dovranno essere aggiunte anche le informazioni relative al veicolo terrestre 
+    def _step(self, action,step, test_flag): #NB dovranno essere aggiunte anche le informazioni relative al veicolo terrestre 
         
         #Take as Input Action
         #Give as Output nextState, reward, Terminal 
@@ -104,67 +107,59 @@ class Environment():
         vel = Twist()
         vel.linear.x = action[0]
         vel.linear.y = action[1]
-        
+        vel.linear.z = self.linear_vel_z
+        vel.angular.z = self.angular_vel_z 
         if self.debug:
             print('vel_x:{}, vel_y: {}'.format(vel.linear.x, vel.linear.y))
             #if there are other things to be printed
+        
+        ## Transformation of velocity from body frame to world frame in the case of testing
+        if test_flag:
+           poseData,imuData, velData, altitudeVelDrone = self.takeEnvObservations(test_flag)
+           _, _, _, R_tot = self.from_quaternion_to_euler(poseData, imuData, velData, step, test_flag)
+           vel_vect = [vel.linear.x, vel.linear.y, vel.linear.z]
+           vel_vect = np.transpose(vel_vect)
+           vel_world = [[0],
+                        [0],
+                        [0]]
+           R_tot = np.array(R_tot)
+          
+          
+           for i in range(R_tot.shape[0]): #row
+               for j in range(R_tot.shape[1]): #column
+                vel_world[i] +=  R_tot[i][j] * vel_vect[j] 
+           vel.linear.x  =  vel_world[0]
+           vel.linear.y = vel_world[1]
+           print('vel.linear.x', vel.linear.x)
+           print(' vel.linear.y ',  vel.linear.y )
+        
         
         self.gazebo.unpauseSim()
         
         self.pub.publish(vel)
         time.sleep(self.step_running) #stop the code in order to wait the upgrade of the simulation phisycs
-        poseData,imuData, velData = self.takeEnvObservations() #it is possible to add imu inf, ecc
+        poseData,imuData, velData, altitudeVelDrone = self.takeEnvObservations(test_flag) #it is possible to add imu inf, ecc
         self.gazebo.pauseSim()
-        
+        if test_flag:
+           self.linear_vel_z = altitudeVelDrone.linear.z
+           self.angular_vel_z = altitudeVelDrone.angular.z
         #Do the processing of the data and the state reached in oreder to obtain a reward  and define if it is the terminal state or not
-        reward, isTerminal = self.processingData(poseData, imuData, velData, step)
+        reward, isTerminal= self.processingData(poseData, imuData, velData, step, test_flag)
+        
         nextState = [poseData.pose.pose.position.x, poseData.pose.pose.position.y]
         self.prev_state = nextState
-        self.plotState = np.vstack((self.plotState, np.asarray(nextState))) #cretate a vertical array of two array concatenated 
-       
+        #self.plotState = np.vstack((self.plotState, np.asarray(nextState))) #cretate a vertical array of two array concatenated 
+        altitude = poseData.pose.pose.position.z
         if isTerminal[0] == True:
             self.goal_reached = self.goal_reached + 1
             print('State terminal reached number :', self.goal_reached)
            
-        return nextState, reward, isTerminal
-    
-    def takeEnvObservations(self): #Function which takes information from the environment in gazebo 
-        
-        #Take pose information 
-        poseData = None
-        while poseData is None :
-            try:
-                poseData = rospy.wait_for_message('/ground_truth/state', Odometry, timeout = 5)
-            except:
-                rospy.loginfo('Inable to reach the drone Pose topic. Try to connect again')
-                
-        
-        imuData = None 
-        while imuData is None :
-            try:
-                imuData = rospy.wait_for_message('/ardrone/imu', Imu, timeout = 5)
-            except:
-                rospy.loginfo('Inable to reach the drone Imu topic. Try to connect again')
-        
-        velData = None
-        while velData is None:
-          try:
-              velData = rospy.wait_for_message('/fix_velocity', Vector3Stamped, timeout=5)
-          except:
-              rospy.loginfo("Inable to reach the drone Imu topic. Try to connect again")
-    
-        return poseData, imuData, velData
-    
-    def processingData(self,poseData, imuData, velData, step):
-        #This Function takes the information obtained from the environment and check if they are inside the limit defined for a good learning.
-        Terminal = [False]
-        
-        #Obtain eulerian angles from quaternion infromation given by imuData
-        #roll angle --> x axis rotation
-        
+        return nextState, reward, isTerminal, altitude
+     
+    def from_quaternion_to_euler(self,poseData, imuData, velData, step, test_flag):
         a1 = +2.0 * (imuData.orientation.w * imuData.orientation.x + imuData.orientation.y * imuData.orientation.z)
         a2 = 1.0 - 2.0 *(imuData.orientation.x*imuData.orientation.x + imuData.orientation.y*imuData.orientation.y)
-        roll = math.atan2(a1, a2)
+        roll = math.atan2(a1, a2) #theta
         
         #pitch angle --> y axis rotation
         a3 = 2.0*(imuData.orientation.w* imuData.orientation.y - imuData.orientation.z * imuData.orientation.x)
@@ -172,13 +167,108 @@ class Environment():
             a3 = 1
         if a3 < -1:
             a3 = -1
-        pitch = math.asin(a3)
+        pitch = math.asin(a3) #phi
         
         #yaw angle (z axis rotation)
         a4 = 2.0 * (imuData.orientation.w * imuData.orientation.z + imuData.orientation.x * imuData.orientation.y)        
         a5 = 1.0 - 2.0* (imuData.orientation.y * imuData.orientation.y + imuData.orientation.z * imuData.orientation.z)
-        yaw = math.atan2(a4, a5)
+        yaw = math.atan2(a4, a5) #psi
         
+        #Rotating velocity to world frame if YAw is aligned to vehicle 
+        if test_flag:
+#            R_theta = [[1, 0, 0],
+#                       [0, math.cos(roll), -math.sin(roll)],
+#                       [0, math.sin(roll), math.cos(roll)]]
+#            R_phi = [[math.cos(pitch), 0, math.sin(pitch)],
+#                      [0, 1, 0],
+#                      [-math.sin(pitch), 0, math.cos(pitch)]]
+#            R_yaw =  [[math.cos(yaw), -math.sin(yaw), 0],
+#                      [math.sin(yaw), math.cos(yaw), 0],
+#                      [0, 0, 1]]
+#            R_tot = R_theta * R_phi * R_yaw
+            R_tot = [[math.cos(pitch)*math.cos(yaw), math.cos(pitch)*math.sin(yaw),  -math.sin(pitch)],
+                      [math.sin(roll)*math.sin(pitch)*math.cos(yaw) - math.cos(roll)*math.sin(yaw) , math.sin(roll)*math.sin(pitch)*math.sin(yaw) + math.cos(roll)*math.cos(yaw), math.sin(roll)*math.cos(pitch)],
+                      [math.cos(roll)*math.sin(pitch)*math.cos(yaw) + math.sin(pitch)*math.sin(yaw), math.cos(roll)* math.sin(pitch)*math.sin(yaw) -  math.sin(roll)*math.cos(yaw),  math.cos(roll)*math.cos(pitch)]]
+            
+        return roll, pitch, yaw, R_tot
+    
+    def takeEnvObservations(self, test_flag): #Function which takes information from the environment in gazebo 
+        self.gazebo.unpauseSim()
+        #Take pose information 
+        poseData = None
+        while poseData is None :
+            try:
+                poseData = rospy.wait_for_message('/ground_truth/state', Odometry, timeout = 5)
+            except:
+                rospy.loginfo('Unable to reach the drone Pose topic. Try to connect again')
+                
+        
+        imuData = None 
+        while imuData is None :
+            try:
+                imuData = rospy.wait_for_message('/ardrone/imu', Imu, timeout = 5)
+            except:
+                rospy.loginfo('Unable to reach the drone Imu topic. Try to connect again')
+        
+        velData = None
+        while velData is None:
+          try:
+              velData = rospy.wait_for_message('/fix_velocity', Vector3Stamped, timeout=5)
+          except:
+              rospy.loginfo("Unable to reach the drone Imu topic. Try to connect again")
+        altitudeVelDrone = None
+        if test_flag == True:
+          
+           while altitudeVelDrone is None:
+             try:
+                 altitudeVelDrone = rospy.wait_for_message('/drone/cmd_vel', Twist, timeout=5)
+                
+             except:
+                 rospy.loginfo("Unable to reach the drone velocity topic. Try to connect again")      
+              
+    
+        return poseData, imuData, velData, altitudeVelDrone
+    
+   
+    
+    def processingData(self,poseData, imuData, velData, step, test_flag):
+        #This Function takes the information obtained from the environment and check if they are inside the limit defined for a good learning.
+        Terminal = [False]
+        roll, pitch, yaw, R_tot = self.from_quaternion_to_euler(poseData, imuData, velData, step, test_flag)
+#        R_tot = []
+#        #Obtain eulerian angles from quaternion infromation given by imuData
+#        #roll angle --> x axis rotation
+#        
+#        a1 = +2.0 * (imuData.orientation.w * imuData.orientation.x + imuData.orientation.y * imuData.orientation.z)
+#        a2 = 1.0 - 2.0 *(imuData.orientation.x*imuData.orientation.x + imuData.orientation.y*imuData.orientation.y)
+#        roll = math.atan2(a1, a2) #theta
+#        
+#        #pitch angle --> y axis rotation
+#        a3 = 2.0*(imuData.orientation.w* imuData.orientation.y - imuData.orientation.z * imuData.orientation.x)
+#        if a3 > 1:
+#            a3 = 1
+#        if a3 < -1:
+#            a3 = -1
+#        pitch = math.asin(a3) #phi
+#        
+#        #yaw angle (z axis rotation)
+#        a4 = 2.0 * (imuData.orientation.w * imuData.orientation.z + imuData.orientation.x * imuData.orientation.y)        
+#        a5 = 1.0 - 2.0* (imuData.orientation.y * imuData.orientation.y + imuData.orientation.z * imuData.orientation.z)
+#        yaw = math.atan2(a4, a5) #psi
+#        
+#        #Rotating velocity to world frame if YAw is aligned to vehicle 
+#        if test_flag:
+#            R_theta = [[1, 0, 0],
+#                       [0, math.cos(roll), -math.sin(roll)],
+#                       [0, math.sin(roll), math.cos(roll)]]
+#            R_phi = [[math.cos(pitch), 0, math.sin(pitch)],
+#                      [0, 1, 0],
+#                      [-math.sin(pitch), 0, math.cos(pitch)]]
+#            R_yaw =  [[math.cos(yaw), -math.sin(yaw), 0],
+#                      [math.sin(yaw), math.cos(yaw), 0],
+#                      [0, 0, 1]]
+#            R_tot = R_theta * R_phi * R_yaw
+            
         if pitch > self.max_incl or pitch < -self.max_incl:
             if self.debug:
                 rospy.loginfo("Terminating Episode: Pitch value out of limits, unstable quad ----> "+str(pitch))

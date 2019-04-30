@@ -1,0 +1,5 @@
+<launch>
+
+<node pkg="deep_drone" name="DDPG_drone" type="ddpg_drone_position.py" output="screen"/>
+</launch>
+
